@@ -193,6 +193,7 @@ Answer concisely in at most 80 words. Do not inspect local files, run commands, 
         -c 'features.shell_snapshot=false'
         -c 'notify=[]'
         -c 'disable_response_storage=true'
+        -c 'shell_environment_policy.inherit="none"'
         --output-last-message "$CURRENT_RESPONSE_FILE"
         "$prompt"
     )
@@ -211,6 +212,10 @@ Answer concisely in at most 80 words. Do not inspect local files, run commands, 
         response_bytes=$(wc -c < "$CURRENT_RESPONSE_FILE" | tr -d '[:space:]')
         log "OK (response=${response_bytes}B, workspace=$CURRENT_RUN_DIR)"
     else
+        # Empty final output must fail even when Codex exits 0.
+        if [ "$exit_code" -eq 0 ]; then
+            exit_code=1
+        fi
         log "FAILED (exit=$exit_code, workspace=$CURRENT_RUN_DIR)"
         {
             printf '%s\n' '--- last command output ---'
@@ -264,8 +269,10 @@ fi
 mkdir -p "$(dirname "$LOG_FILE")"
 log "Started (interval=${MIN_INTERVAL_SEC}-${MAX_INTERVAL_SEC}s, timeout=${REQUEST_TIMEOUT_SEC}s)."
 
+LAST_EXIT_CODE=0
 while true; do
-    run_request || true
+    LAST_EXIT_CODE=0
+    run_request || LAST_EXIT_CODE=$?
 
     if [ "$RUN_ONCE" = true ]; then
         break
@@ -277,3 +284,4 @@ while true; do
 done
 
 log "Finished."
+exit "$LAST_EXIT_CODE"

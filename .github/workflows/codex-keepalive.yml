@@ -1,0 +1,66 @@
+name: Codex Keepalive
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "smoke = no real API charge; live = one configured AnyRouter Codex request"
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - live
+  schedule:
+    # Hourly at minute 17. Off until KEEPALIVE_ENABLED=true.
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-keepalive-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install pinned Codex CLI (no API key in this job)
+        run: |
+          npm install --global --ignore-scripts @openai/codex@0.154.0
+          codex --version
+      - name: Verify success, failure and empty-response exit codes
+        run: python3 tests/test_actions_keepalive.py
+      - name: Exercise real Codex CLI against local Responses fixture
+        run: python3 scripts/actions_keepalive.py --smoke-test
+
+  live:
+    if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'live') || (github.event_name == 'schedule' && vars.KEEPALIVE_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install pinned Codex CLI without provider credentials
+        run: |
+          npm install --global --ignore-scripts @openai/codex@0.154.0
+          codex --version
+      - name: Run one real AnyRouter Codex request
+        env:
+          ANYROUTER_API_KEY: ${{ secrets.ANYROUTER_API_KEY }}
+          ANYROUTER_BASE_URL: ${{ vars.ANYROUTER_BASE_URL }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+        run: python3 scripts/actions_keepalive.py --live
